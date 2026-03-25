@@ -1,0 +1,161 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>鍔ㄦ€佽〃鏍肩敓鎴愬櫒</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <div class="config-panel">
+            <h2>閰嶇疆闈㈡澘</h2>
+            
+            <div class="config-section">
+                <h3>鏍囬閰嶇疆</h3>
+                <div class="config-item">
+                    <label>鏍囬鍐呭</label>
+                    <input type="text" id="titleContent" value="2026鑳℃鼎鍏ㄧ悆瀵岃豹姒滃嚭鐐?>
+                </div>
+                <div class="config-item">
+                    <label>鏂囧瓧澶у皬</label>
+                    <input type="number" id="titleSize" value="25" min="12" max="60">
+                    <span>px</span>
+                </div>
+                <div class="config-item">
+                    <label>瀛椾綋棰滆壊</label>
+                    <input type="color" id="titleColor" value="#ffffff">
+                </div>
+            </div>
+
+            <div class="config-section">
+                <h3>鑳屾櫙閫夋嫨</h3>
+                <div class="background-grid">
+                    <div class="background-option" data-bg="1" style="background: linear-gradient(135deg, #050510 0%, #0a192f 50%, #0f2027 100%);"></div>
+                    <div class="background-option" data-bg="2" style="background: linear-gradient(180deg, #030712 0%, #1e3a8a 30%, #0f172a 100%);"></div>
+                    <div class="background-option" data-bg="3" style="background: linear-gradient(135deg, #020617 0%, #1e1b4b 40%, #312e81 70%, #020617 100%);"></div>
+                    <div class="background-option" data-bg="4" style="background: radial-gradient(circle at 20% 50%, rgba(56, 189, 248, 0.15) 0%, transparent 50%), radial-gradient(circle at 80% 50%, rgba(129, 140, 248, 0.15) 0%, transparent 50%), linear-gradient(180deg, #020617 0%, #0f172a 100%);"></div>
+                    <div class="background-option" data-bg="5" style="background: linear-gradient(135deg, #020617 0%, #0f172a 30%, #111827 60%, #020617 100%);"></div>
+                    <div class="background-option" data-bg="6" style="background: radial-gradient(ellipse at top, #38bdf8 0%, transparent 50%), linear-gradient(180deg, #020617 0%, #0f172a 100%);"></div>
+                    <div class="background-option" data-bg="7" style="background: linear-gradient(45deg, #020617 0%, #0f172a 25%, #1e293b 50%, #0f172a 75%, #020617 100%);"></div>
+                    <div class="background-option" data-bg="8" style="background: linear-gradient(180deg, #020617 0%, #1f2937 40%, #111827 100%);"></div>
+                    <div class="background-option" data-bg="9" style="background: radial-gradient(circle at 50% 20%, rgba(16, 185, 129, 0.1) 0%, transparent 50%), radial-gradient(circle at 80% 80%, rgba(59, 130, 246, 0.1) 0%, transparent 50%), linear-gradient(135deg, #020617 0%, #0f172a 100%);"></div>
+                    <div class="background-option" data-bg="10" style="background: linear-gradient(135deg, #020617 0%, #0f172a 30%, #1e3a8a 60%, #020617 100%);"></div>
+                </div>
+            </div>
+
+            <div class="config-section">
+                <h3>鍔ㄧ敾閰嶇疆</h3>
+                <div class="config-item">
+                    <label>鏄剧ず闂撮殧 (姣)</label>
+                    <input type="number" id="animationInterval" value="300" min="50" max="3000" step="50">
+                </div>
+                <div class="config-item">
+                    <button id="playAnimationBtn" class="animation-btn">鍔ㄧ敾棰勮</button>
+                </div>
+            </div>
+
+            <div class="config-section">
+                <h3>鏁版嵁杈撳叆</h3>
+                <div class="config-item">
+                    <label>JSON鏁版嵁</label>
+                    <textarea id="dataInput" rows="13">[
+  {
+    "鎺掑悕": 1,
+    "濮撳悕": "鍩冮殕路椹柉鍏?,
+    "璐㈠瘜(浜垮厓浜烘皯甯?": 55400,
+    "涓昏鍏徃": "SpaceX",
+    "骞撮緞": 54
+  },
+  {
+    "鎺掑悕": 2,
+    "濮撳悕": "鏉板か路璐濅綈鏂?,
+    "璐㈠瘜(浜垮厓浜烘皯甯?": 21000,
+    "涓昏鍏徃": "浜氶┈閫?,
+    "骞撮緞": 62
+  },
+  {
+    "鎺掑悕": 3,
+    "濮撳悕": "鎷夐噷路浣╁",
+    "璐㈠瘜(浜垮厓浜烘皯甯?": 19000,
+    "涓昏鍏徃": "Alphabet",
+    "骞撮緞": 52,
+    "鎺掑悕鍙樺姩": "涓婂崌"
+  },
+  {
+    "鎺掑悕": 4,
+    "濮撳悕": "鎷夐噷路鍩冮噷妫?,
+    "璐㈠瘜(浜垮厓浜烘皯甯?": 18700,
+    "涓昏鍏徃": "鐢查鏂?,
+    "骞撮緞": 81,
+    "鎺掑悕鍙樺姩": "涓婂崌"
+  },
+  {
+    "鎺掑悕": 5,
+    "濮撳悕": "璋㈠皵鐩柭峰竷鏋?,
+    "璐㈠瘜(浜垮厓浜烘皯甯?": 17300,
+    "涓昏鍏徃": "Alphabet",
+    "骞撮緞": 51,
+    "鎺掑悕鍙樺姩": "涓婂崌"
+  },
+  {
+    "鎺掑悕": 6,
+    "濮撳悕": "椹厠路鎵庡厠浼牸",
+    "璐㈠瘜(浜垮厓浜烘皯甯?": 16400,
+    "涓昏鍏徃": "Meta Platforms",
+    "骞撮緞": 41,
+    "鎺掑悕鍙樺姩": "涓嬮檷"
+  },
+  {
+    "鎺掑悕": 7,
+    "濮撳悕": "浼撼寰仿烽樋璇虹壒",
+    "璐㈠瘜(浜垮厓浜烘皯甯?": 12500,
+    "涓昏鍏徃": "閰╂偊路杞╁凹璇?璺槗路濞佺櫥",
+    "骞撮緞": 76
+  },
+  {
+    "鎺掑悕": 8,
+    "濮撳悕": "娌冧鸡路宸磋彶鐗?,
+    "璐㈠瘜(浜垮厓浜烘皯甯?": 12100,
+    "涓昏鍏徃": "浼厠甯屽皵路鍝堟拻闊?,
+    "骞撮緞": 95
+  },
+  {
+    "鎺掑悕": 9,
+    "濮撳悕": "榛勪粊鍕?,
+    "璐㈠瘜(浜垮厓浜烘皯甯?": 12000,
+    "涓昏鍏徃": "鑻变紵杈?,
+    "骞撮緞": 62
+  },
+  {
+    "鎺掑悕": 10,
+    "濮撳悕": "鍙茶拏澶烽矋灏旈粯",
+    "璐㈠瘜(浜垮厓浜烘皯甯?": 11100,
+    "涓昏鍏徃": "寰蒋",
+    "骞撮緞": 69,
+    "鎺掑悕鍙樺姩": "涓嬮檷"
+  }
+]</textarea>
+                </div>
+            </div>
+        </div>
+
+        <div class="preview-container">
+            <div class="preview-panel" id="previewPanel">
+                <div class="preview-content" id="previewContent">
+                    <div class="title-wrapper">
+                        <h1 class="title" id="previewTitle">2026鑳℃鼎鍏ㄧ悆瀵岃豹姒滃嚭鐐?/h1>
+                    </div>
+                    <div class="table-wrapper">
+                        <div class="table-container" id="tableContainer"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
+
+

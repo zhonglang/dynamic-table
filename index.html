@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>动态表格生成器</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <div class="config-panel">
+            <h2>配置面板</h2>
+            
+            <div class="config-section">
+                <h3>标题配置</h3>
+                <div class="config-item">
+                    <label>标题内容</label>
+                    <input type="text" id="titleContent" value="2026胡润全球富豪榜出炉">
+                </div>
+                <div class="config-item">
+                    <label>文字大小</label>
+                    <input type="number" id="titleSize" value="25" min="12" max="60">
+                    <span>px</span>
+                </div>
+                <div class="config-item">
+                    <label>字体颜色</label>
+                    <input type="color" id="titleColor" value="#ffffff">
+                </div>
+                <div class="config-item">
+                    <label>表头文字大小</label>
+                    <input type="number" id="tableHeaderSize" value="0" min="0" max="36">
+                    <span>px(0=自动)</span>
+                </div>
+            </div>
+
+            <div class="config-section">
+                <h3>背景选择</h3>
+                <div class="background-grid">
+                    <div class="background-option" data-bg="1" style="background: radial-gradient(circle at 15% 20%, rgba(14, 165, 233, 0.28) 0%, transparent 42%), radial-gradient(circle at 85% 80%, rgba(99, 102, 241, 0.22) 0%, transparent 46%), linear-gradient(135deg, #020617 0%, #0b1530 42%, #0a1f3f 100%);"></div>
+                    <div class="background-option" data-bg="2" style="background: linear-gradient(160deg, #001b2e 0%, #003049 34%, #005f73 72%, #0a9396 100%);"></div>
+                    <div class="background-option" data-bg="3" style="background: radial-gradient(circle at 20% 10%, rgba(217, 70, 239, 0.2) 0%, transparent 48%), linear-gradient(135deg, #1e1b4b 0%, #312e81 45%, #4c1d95 100%);"></div>
+                    <div class="background-option" data-bg="4" style="background: linear-gradient(135deg, #f0fdf4 0%, #d1fae5 45%, #bae6fd 100%);"></div>
+                    <div class="background-option" data-bg="5" style="background: radial-gradient(circle at 80% 15%, rgba(253, 186, 116, 0.45) 0%, transparent 38%), linear-gradient(145deg, #7c2d12 0%, #c2410c 45%, #f59e0b 100%);"></div>
+                    <div class="background-option" data-bg="6" style="background: linear-gradient(155deg, #f8fafc 0%, #e2e8f0 52%, #cbd5e1 100%);"></div>
+                    <div class="background-option" data-bg="7" style="background: linear-gradient(145deg, #fff7ed 0%, #ffedd5 40%, #fde68a 100%);"></div>
+                    <div class="background-option" data-bg="8" style="background: radial-gradient(circle at 18% 20%, rgba(74, 222, 128, 0.3) 0%, transparent 45%), linear-gradient(160deg, #052e16 0%, #14532d 46%, #166534 100%);"></div>
+                    <div class="background-option" data-bg="9" style="background: repeating-linear-gradient(90deg, rgba(56, 189, 248, 0.08) 0px, rgba(56, 189, 248, 0.08) 1px, transparent 1px, transparent 16px), repeating-linear-gradient(0deg, rgba(99, 102, 241, 0.08) 0px, rgba(99, 102, 241, 0.08) 1px, transparent 1px, transparent 16px), linear-gradient(145deg, #020617 0%, #111827 100%);"></div>
+                    <div class="background-option" data-bg="10" style="background: linear-gradient(135deg, #111827 0%, #1f2937 35%, #b45309 100%);"></div>
+                </div>
+                <div class="config-item">
+                    <label>叠加背景图</label>
+                    <input type="file" id="backgroundImageInput" accept="image/*">
+                </div>
+                <div class="config-item">
+                    <label>图片透明度</label>
+                    <input type="range" id="backgroundImageOpacity" min="0" max="100" step="1" value="45">
+                </div>
+                <div class="config-item">
+                    <button id="clearBackgroundImageBtn" class="secondary-btn">清除背景图</button>
+                </div>
+            </div>
+
+            <div class="config-section">
+                <h3>动画配置</h3>
+                <div class="config-item">
+                    <label>动画类型</label>
+                    <select id="animationType">
+                        <option value="expand">向下展开</option>
+                        <option value="slide-left">左侧飞入</option>
+                        <option value="slide-right">右侧飞入</option>
+                        <option value="rise-up">下方浮入</option>
+                        <option value="zoom-in">缩放淡入</option>
+                    </select>
+                </div>
+                <div class="config-item">
+                    <label>显示间隔 (毫秒)</label>
+                    <input type="number" id="animationInterval" value="300" min="50" max="3000" step="50">
+                </div>
+                <div class="config-item">
+                    <button id="playAnimationBtn" class="animation-btn">动画预览</button>
+                </div>
+                <div class="config-item">
+                    <button id="exportAnimationBtn" class="export-btn">导出视频</button>
+                </div>
+            </div>
+
+            <div class="config-section">
+                <h3>数据输入</h3>
+                <div class="config-item">
+                    <label>JSON数据</label>
+                    <textarea id="dataInput" rows="13">[
+  {
+    "排名": 1,
+    "姓名": "埃隆·马斯克",
+    "财富(亿元人民币)": 55400,
+    "主要公司": "SpaceX",
+    "年龄": 54
+  },
+  {
+    "排名": 2,
+    "姓名": "杰夫·贝佐斯",
+    "财富(亿元人民币)": 21000,
+    "主要公司": "亚马逊",
+    "年龄": 62
+  },
+  {
+    "排名": 3,
+    "姓名": "拉里·佩奇",
+    "财富(亿元人民币)": 19000,
+    "主要公司": "Alphabet",
+    "年龄": 52,
+    "排名变动": "上升"
+  },
+  {
+    "排名": 4,
+    "姓名": "拉里·埃里森",
+    "财富(亿元人民币)": 18700,
+    "主要公司": "甲骨文",
+    "年龄": 81,
+    "排名变动": "上升"
+  },
+  {
+    "排名": 5,
+    "姓名": "谢尔盖·布林",
+    "财富(亿元人民币)": 17300,
+    "主要公司": "Alphabet",
+    "年龄": 51,
+    "排名变动": "上升"
+  },
+  {
+    "排名": 6,
+    "姓名": "马克·扎克伯格",
+    "财富(亿元人民币)": 16400,
+    "主要公司": "Meta Platforms",
+    "年龄": 41,
+    "排名变动": "下降"
+  },
+  {
+    "排名": 7,
+    "姓名": "伯纳德·阿诺特",
+    "财富(亿元人民币)": 12500,
+    "主要公司": "酩悦·轩尼诗-路易·威登",
+    "年龄": 76
+  },
+  {
+    "排名": 8,
+    "姓名": "沃伦·巴菲特",
+    "财富(亿元人民币)": 12100,
+    "主要公司": "伯克希尔·哈撒韦",
+    "年龄": 95
+  },
+  {
+    "排名": 9,
+    "姓名": "黄仁勋",
+    "财富(亿元人民币)": 12000,
+    "主要公司": "英伟达",
+    "年龄": 62
+  },
+  {
+    "排名": 10,
+    "姓名": "史蒂夫·鲍尔默",
+    "财富(亿元人民币)": 11100,
+    "主要公司": "微软",
+    "年龄": 69,
+    "排名变动": "下降"
+  }
+]</textarea>
+                </div>
+            </div>
+        </div>
+
+        <div class="preview-container">
+            <div class="preview-panel" id="previewPanel">
+                <div class="background-image-layer" id="backgroundImageLayer"></div>
+                <div class="preview-content" id="previewContent">
+                    <div class="title-wrapper">
+                        <h1 class="title" id="previewTitle">2026胡润全球富豪榜出炉</h1>
+                    </div>
+                    <div class="table-wrapper">
+                        <div class="table-container" id="tableContainer"></div>
+                    </div>
+                </div>
+                <canvas id="previewCanvas"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
