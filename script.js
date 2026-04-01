@@ -14,13 +14,18 @@ const backgrounds = {
 let currentBg = 1;
 let renderTimeout = null;
 let animationInterval = null;
+let adjustSizesTimeout = null;
 let isAnimating = false;
 let isExporting = false;
+let currentColumnKeysSignature = '';
+let currentColumnTabKey = '';
+let tableScrollY = 0;
 const customBackgroundImage = {
     dataUrl: '',
     image: null,
     opacity: 0.45
 };
+const columnConfigs = {};
 const rowAnimationClasses = [
     'anim-type-expand',
     'anim-type-slide-left',
@@ -29,24 +34,315 @@ const rowAnimationClasses = [
     'anim-type-zoom-in'
 ];
 
+function escapeHTML(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function parseTableData() {
+    const data = JSON.parse(document.getElementById('dataInput').value);
+    if (!Array.isArray(data) || data.length === 0) return null;
+    return data;
+}
+
+function getDisplayKeys(data) {
+    if (!Array.isArray(data) || data.length === 0) return [];
+    return Object.keys(data[0]).filter(key => key !== '排名变动');
+}
+
+function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+}
+
+function createDefaultColumnConfig(columnCount) {
+    const width = columnCount > 0 ? 100 / columnCount : 20;
+    return {
+        width,
+        cellFontSize: 0,
+        cellColor: '#f1f5f9',
+        cellBold: false,
+        headerFontSize: 0,
+        headerColor: '#fbbf24',
+        visible: true
+    };
+}
+
+function syncColumnConfigs(keys) {
+    const keySet = new Set(keys);
+    Object.keys(columnConfigs).forEach(key => {
+        if (!keySet.has(key)) {
+            delete columnConfigs[key];
+        }
+    });
+    keys.forEach(key => {
+        if (!columnConfigs[key]) {
+            columnConfigs[key] = createDefaultColumnConfig(keys.length);
+        }
+    });
+}
+
+function getNormalizedColumnWidths(keys) {
+    if (keys.length === 0) return {};
+    const rawWidths = keys.map(key => {
+        const configured = Number(columnConfigs[key]?.width);
+        return Number.isFinite(configured) ? clamp(configured, 1, 1000) : 1;
+    });
+    const total = rawWidths.reduce((sum, value) => sum + value, 0) || 1;
+    const normalized = {};
+    keys.forEach((key, index) => {
+        normalized[key] = (rawWidths[index] / total) * 100;
+    });
+    return normalized;
+}
+
+function buildColumnStyles(config) {
+    const headerStyles = [];
+    const cellStyles = [];
+    if (Number.isFinite(config.headerFontSize) && config.headerFontSize > 0) {
+        headerStyles.push(`font-size:${config.headerFontSize}px`);
+    }
+    if (config.headerColor) {
+        headerStyles.push(`color:${config.headerColor}`);
+    }
+    if (Number.isFinite(config.cellFontSize) && config.cellFontSize > 0) {
+        cellStyles.push(`font-size:${config.cellFontSize}px`);
+    }
+    if (config.cellColor) {
+        cellStyles.push(`color:${config.cellColor}`);
+    }
+    if (config.cellBold) {
+        cellStyles.push('font-weight:700');
+    }
+    return {
+        headerStyle: headerStyles.join(';'),
+        cellStyle: cellStyles.join(';')
+    };
+}
+
+function renderColumnConfigPanel(allKeys) {
+    const list = document.getElementById('columnConfigList');
+    if (!list) return;
+    list.innerHTML = '';
+    const visibleKeys = allKeys.filter(key => columnConfigs[key]?.visible !== false);
+
+    if (!allKeys.length) {
+        const empty = document.createElement('div');
+        empty.className = 'column-config-empty';
+        empty.textContent = '请先输入有效JSON数据，系统会自动生成列配置项';
+        list.appendChild(empty);
+        currentColumnTabKey = '';
+        return;
+    }
+
+    if (!currentColumnTabKey || !allKeys.includes(currentColumnTabKey)) {
+        currentColumnTabKey = allKeys[0];
+    }
+
+    const header = document.createElement('div');
+    header.className = 'column-list-header';
+    header.textContent = '点击列名进入设置，勾选控制显示/隐藏';
+    list.appendChild(header);
+
+    const columnList = document.createElement('div');
+    columnList.className = 'column-list';
+    allKeys.forEach(key => {
+        const isVisible = visibleKeys.includes(key);
+        const item = document.createElement('div');
+        item.className = `column-list-item${key === currentColumnTabKey ? ' active' : ''}${!isVisible ? ' hidden' : ''}`;
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.checked = isVisible;
+        checkbox.className = 'column-visibility-checkbox';
+        checkbox.addEventListener('change', (e) => {
+            e.stopPropagation();
+            columnConfigs[key].visible = e.target.checked;
+            renderTable();
+        });
+
+        const label = document.createElement('span');
+        label.className = 'column-list-label';
+        label.textContent = key;
+        label.addEventListener('click', () => {
+            if (currentColumnTabKey === key) return;
+            currentColumnTabKey = key;
+            renderColumnConfigPanel(allKeys);
+        });
+
+        item.appendChild(checkbox);
+        item.appendChild(label);
+        columnList.appendChild(item);
+    });
+    list.appendChild(columnList);
+
+    const config = columnConfigs[currentColumnTabKey];
+    const card = document.createElement('div');
+    card.className = 'column-config-card';
+
+    const title = document.createElement('div');
+    title.className = 'column-config-title';
+    title.textContent = `${currentColumnTabKey} 列设置`;
+    card.appendChild(title);
+
+    const grid = document.createElement('div');
+    grid.className = 'column-config-grid';
+    card.appendChild(grid);
+
+    const fields = [
+        { label: '列宽权重', prop: 'width', type: 'number', min: 1, max: 1000, step: 1, value: Math.round(config.width) },
+        { label: '列字体大小', prop: 'cellFontSize', type: 'number', min: 0, max: 40, step: 1, value: config.cellFontSize || 0 },
+        { label: '列字体颜色', prop: 'cellColor', type: 'color', value: config.cellColor || '#f1f5f9' },
+        { label: '列字体加粗', prop: 'cellBold', type: 'checkbox', checked: !!config.cellBold },
+        { label: '表头字体大小', prop: 'headerFontSize', type: 'number', min: 0, max: 40, step: 1, value: config.headerFontSize || 0 },
+        { label: '表头字体颜色', prop: 'headerColor', type: 'color', value: config.headerColor || '#fbbf24' }
+    ];
+
+    fields.forEach(field => {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'column-config-field';
+        const label = document.createElement('label');
+        label.textContent = field.label;
+        const input = document.createElement('input');
+        input.type = field.type;
+        if (field.type === 'checkbox') {
+            input.checked = !!field.checked;
+            wrapper.classList.add('checkbox-field');
+        } else {
+            input.value = String(field.value);
+        }
+        if (field.type === 'number') {
+            input.min = String(field.min);
+            input.max = String(field.max);
+            input.step = String(field.step);
+        }
+        const handler = event => {
+            const nextValue = field.type === 'checkbox' ? event.target.checked : event.target.value;
+            handleColumnConfigInputChange(currentColumnTabKey, field.prop, nextValue);
+        };
+        input.addEventListener(field.type === 'checkbox' ? 'change' : 'input', handler);
+        wrapper.appendChild(label);
+        wrapper.appendChild(input);
+        grid.appendChild(wrapper);
+    });
+
+    list.appendChild(card);
+}
+
+function handleColumnConfigInputChange(key, prop, rawValue) {
+    if (!columnConfigs[key]) return;
+    if (prop === 'cellColor' || prop === 'headerColor') {
+        columnConfigs[key][prop] = rawValue;
+    } else if (prop === 'cellBold' || prop === 'visible') {
+        columnConfigs[key][prop] = !!rawValue;
+    } else if (prop === 'width') {
+        const value = Number(rawValue);
+        if (!Number.isFinite(value)) return;
+        columnConfigs[key][prop] = clamp(value, 1, 1000);
+    } else if (prop === 'cellFontSize' || prop === 'headerFontSize') {
+        const value = Number(rawValue);
+        if (!Number.isFinite(value)) return;
+        columnConfigs[key][prop] = clamp(value, 0, 40);
+    } else {
+        return;
+    }
+    renderTable();
+    updatePreview();
+}
+
+function getBarrageLines() {
+    const rawValue = document.getElementById('barrageInput')?.value || '';
+    return rawValue
+        .split(/\r?\n/)
+        .map(item => item.trim())
+        .filter(Boolean);
+}
+
+function renderBarrage() {
+    const barrageLayer = document.getElementById('barrageLayer');
+    if (!barrageLayer) return;
+    barrageLayer.innerHTML = '';
+
+    // 如果不是在动画或导出状态，就不生成弹幕DOM，保持画面干净
+    if (!isAnimating && !isExporting) return;
+    
+    // 如果弹幕开关未开启，也不生成弹幕
+    const barrageEnabled = document.getElementById('barrageEnabled')?.checked;
+    if (!barrageEnabled) return;
+
+    const lines = getBarrageLines();
+    if (!lines.length) return;
+
+    const sizeInput = Number(document.getElementById('barrageFontSize')?.value || 16);
+    const fontSize = Number.isFinite(sizeInput) ? clamp(sizeInput, 10, 48) : 16;
+    const color = document.getElementById('barrageColor')?.value || '#ffffff';
+    const layerHeight = Math.max(120, barrageLayer.clientHeight || 560);
+    const capsuleHeight = fontSize + 14;
+    const minTop = 78;
+    const maxTop = Math.max(minTop, layerHeight - capsuleHeight - 12);
+    const usedTops = [];
+
+    lines.forEach((line, index) => {
+        const item = document.createElement('div');
+        item.className = 'barrage-item';
+        item.textContent = line;
+        item.style.fontSize = `${fontSize}px`;
+        item.style.color = color;
+        let top = minTop;
+        if (maxTop > minTop) {
+            for (let attempt = 0; attempt < 8; attempt++) {
+                const candidate = Math.round(minTop + Math.random() * (maxTop - minTop));
+                const overlaps = usedTops.some(existing => Math.abs(existing - candidate) < capsuleHeight * 0.85);
+                if (!overlaps || attempt === 7) {
+                    top = candidate;
+                    break;
+                }
+            }
+        }
+        usedTops.push(top);
+        item.style.top = `${top}px`;
+        item.style.animationDuration = `${8 + (index % 4) * 1.2 + (index % 3) * 0.8}s`;
+        item.style.animationDelay = `${-(index * 1.35)}s`;
+        barrageLayer.appendChild(item);
+    });
+}
+
+function scheduleAdjustTableSizes(delay = 120) {
+    if (adjustSizesTimeout) {
+        clearTimeout(adjustSizesTimeout);
+    }
+    adjustSizesTimeout = setTimeout(() => {
+        if (isAnimating || isExporting) return;
+        adjustTableSizes();
+    }, delay);
+}
+
 function init() {
     setupEventListeners();
     renderTable();
     updateBackground();
     updatePreview();
-    setTimeout(adjustTableSizes, 300);
-    setTimeout(adjustTableSizes, 600);
+    updateSortColumnOptions();
+    scheduleAdjustTableSizes(320);
 }
 
 function setupEventListeners() {
     document.getElementById('titleContent').addEventListener('input', updatePreview);
     document.getElementById('titleSize').addEventListener('input', updatePreview);
     document.getElementById('titleColor').addEventListener('input', updatePreview);
-    document.getElementById('tableHeaderSize').addEventListener('input', () => setTimeout(adjustTableSizes, 50));
+    document.getElementById('tableHeaderSize').addEventListener('input', () => scheduleAdjustTableSizes(50));
     
     const dataInput = document.getElementById('dataInput');
     dataInput.addEventListener('input', handleDataChange);
     dataInput.addEventListener('change', handleDataChange);
+
+    document.getElementById('barrageInput')?.addEventListener('input', renderBarrage);
+    document.getElementById('barrageFontSize')?.addEventListener('input', renderBarrage);
+    document.getElementById('barrageColor')?.addEventListener('input', renderBarrage);
+    document.getElementById('barrageEnabled')?.addEventListener('change', renderBarrage);
 
     document.querySelectorAll('.background-option').forEach(option => {
         option.addEventListener('click', function() {
@@ -74,6 +370,9 @@ function setupEventListeners() {
 
     document.getElementById('playAnimationBtn').addEventListener('click', playAnimation);
     document.getElementById('exportAnimationBtn').addEventListener('click', exportAnimationVideo);
+
+    document.getElementById('sortColumn')?.addEventListener('change', handleSortChange);
+    document.getElementById('sortOrder')?.addEventListener('change', handleSortChange);
 }
 
 function handleDataChange() {
@@ -82,7 +381,65 @@ function handleDataChange() {
     }
     renderTimeout = setTimeout(() => {
         renderTable();
+        updateSortColumnOptions();
     }, 100);
+}
+
+function updateSortColumnOptions() {
+    const select = document.getElementById('sortColumn');
+    if (!select) return;
+
+    const data = parseTableData();
+    const keys = data && data.length > 0 ? Object.keys(data[0]) : [];
+    const numericKeys = keys.filter(key => {
+        if (key === '排名变动') return false;
+        const values = data.map(row => row[key]);
+        return values.some(v => typeof v === 'number' || !isNaN(Number(v)));
+    });
+
+    const currentValue = select.value;
+    select.innerHTML = '<option value="">-- 不排序 --</option>';
+    numericKeys.forEach(key => {
+        const option = document.createElement('option');
+        option.value = key;
+        option.textContent = key;
+        select.appendChild(option);
+    });
+
+    if (numericKeys.includes(currentValue)) {
+        select.value = currentValue;
+    } else {
+        select.value = '';
+    }
+}
+
+function handleSortChange() {
+    renderTable();
+}
+
+function getSortedData(data) {
+    const sortColumn = document.getElementById('sortColumn')?.value;
+    const sortOrder = document.getElementById('sortOrder')?.value || 'asc';
+
+    if (!sortColumn || !data || data.length === 0) {
+        return data;
+    }
+
+    const sorted = [...data];
+    sorted.sort((a, b) => {
+        const aVal = a[sortColumn];
+        const bVal = b[sortColumn];
+        const aNum = Number(aVal);
+        const bNum = Number(bVal);
+
+        if (isNaN(aNum) || isNaN(bNum)) {
+            return String(aVal).localeCompare(String(bVal));
+        }
+
+        return sortOrder === 'asc' ? aNum - bNum : bNum - aNum;
+    });
+
+    return sorted;
 }
 
 function updatePreview() {
@@ -94,8 +451,9 @@ function updatePreview() {
     previewTitle.textContent = title;
     previewTitle.style.fontSize = size + 'px';
     previewTitle.style.color = color;
+    renderBarrage();
     
-    setTimeout(adjustTableSizes, 200);
+    scheduleAdjustTableSizes(200);
 }
 
 function updateBackground() {
@@ -163,18 +521,90 @@ function getSelectedAnimationClass() {
     return className;
 }
 
+function applyDynamicTableStyle(tableContainer, metrics) {
+    const { bodyRowHeight, lastRowHeight, paddingVertical, thFontSize, fontSize } = metrics;
+    const style = document.createElement('style');
+    style.id = 'dynamic-table-styles';
+    style.textContent = `
+        #tableContainer {
+            --row-expand-max: ${bodyRowHeight}px;
+            --row-expand-max-last: ${lastRowHeight}px;
+            --cell-padding-vertical: ${paddingVertical}px;
+        }
+        table {
+            width: 100%;
+            table-layout: fixed;
+            border-collapse: collapse;
+            transition: transform 0.28s cubic-bezier(0.25, 0.1, 0.25, 1);
+        }
+        tbody tr.static-row,
+        tbody tr.expanded-row,
+        tbody tr.collapsed-row {
+            height: ${bodyRowHeight}px;
+            box-sizing: border-box;
+        }
+        tbody tr.static-row td,
+        tbody tr.expanded-row td,
+        tbody tr.collapsed-row td {
+            height: ${bodyRowHeight}px;
+            box-sizing: border-box;
+            overflow: hidden;
+        }
+        tbody tr.static-row:last-child,
+        tbody tr.expanded-row:last-child,
+        tbody tr.collapsed-row:last-child {
+            height: ${lastRowHeight}px;
+        }
+        tbody tr.static-row:last-child td,
+        tbody tr.expanded-row:last-child td,
+        tbody tr.collapsed-row:last-child td {
+            height: ${lastRowHeight}px;
+        }
+        th {
+            font-size: ${thFontSize}px;
+            padding: 6px 4px;
+            line-height: 1.2;
+            box-sizing: border-box;
+            vertical-align: middle;
+        }
+        td {
+            font-size: ${fontSize}px;
+            padding: ${paddingVertical}px 4px;
+            line-height: 1.2;
+            box-sizing: border-box;
+            vertical-align: middle;
+        }
+        .rank-cell {
+            font-size: ${fontSize + 2}px;
+        }
+        .wealth-cell {
+            font-size: ${fontSize + 1}px;
+        }
+        .change-up, .change-down {
+            font-size: ${Math.max(8, fontSize)}px;
+        }
+    `;
+
+    const oldStyle = document.getElementById('dynamic-table-styles');
+    if (oldStyle) {
+        oldStyle.remove();
+    }
+    document.head.appendChild(style);
+    document.body.style.setProperty('--fixed-table-height', `${tableContainer.clientHeight}px`);
+}
+
 function adjustTableSizes() {
     try {
-        const data = JSON.parse(document.getElementById('dataInput').value);
-        if (!Array.isArray(data) || data.length === 0) return;
+        const data = parseTableData();
+        if (!data) return;
 
         const rowCount = data.length;
-        const tableContainer = document.getElementById('tableContainer');
-        const table = tableContainer.querySelector('table');
+        const tableScrollWrapper = document.getElementById('tableScrollWrapper');
+        const table = tableScrollWrapper.querySelector('table');
         
-        if (!tableContainer || !table) return;
+        if (!tableScrollWrapper || !table) return;
         
-        const containerHeight = tableContainer.clientHeight;
+        const containerHeight = tableScrollWrapper.clientHeight;
         
         if (containerHeight <= 0) {
             setTimeout(adjustTableSizes, 50);
@@ -184,107 +614,51 @@ function adjustTableSizes() {
         const thead = table.querySelector('thead');
         const headerHeight = thead ? Math.ceil(thead.getBoundingClientRect().height) : 0;
         const rowDividerTotal = Math.max(0, rowCount - 1);
-        const availableBodyHeight = Math.max(0, containerHeight - headerHeight - rowDividerTotal);
-        const bodyRowHeight = Math.max(1, Math.floor(availableBodyHeight / rowCount));
-        const bodyHeightUsed = bodyRowHeight * rowCount;
-        const lastRowHeight = Math.max(1, bodyRowHeight + (availableBodyHeight - bodyHeightUsed));
-        
-        let fontSize, paddingVertical, thFontSize;
+        const safeBottomInset = 8;
+        const availableBodyHeight = Math.max(0, Math.floor(containerHeight - headerHeight - rowDividerTotal - safeBottomInset));
+
+        let fontSize, paddingVertical, thFontSize, bodyRowHeight, lastRowHeight;
         
         if (rowCount <= 8) {
             fontSize = 13;
             paddingVertical = 6;
             thFontSize = 14;
+            bodyRowHeight = Math.max(1, Math.floor(availableBodyHeight / rowCount));
         } else if (rowCount <= 10) {
             fontSize = 12;
             paddingVertical = 5;
             thFontSize = 13;
+            bodyRowHeight = Math.max(1, Math.floor(availableBodyHeight / rowCount));
         } else if (rowCount <= 15) {
+            fontSize = 12;
+            paddingVertical = 5;
+            thFontSize = 13;
+            bodyRowHeight = 36;
+        } else if (rowCount <= 20) {
             fontSize = 11;
             paddingVertical = 4;
             thFontSize = 12;
-        } else if (rowCount <= 20) {
+            bodyRowHeight = 32;
+        } else {
             fontSize = 10;
             paddingVertical = 3;
             thFontSize = 11;
-        } else {
-            fontSize = 9;
-            paddingVertical = 2;
-            thFontSize = 10;
+            bodyRowHeight = 28;
         }
+        lastRowHeight = bodyRowHeight;
 
         const customHeaderSize = parseInt(document.getElementById('tableHeaderSize')?.value || '0', 10);
         if (Number.isFinite(customHeaderSize) && customHeaderSize > 0) {
             thFontSize = customHeaderSize;
         }
-        
-        const style = document.createElement('style');
-        style.id = 'dynamic-table-styles';
-        style.textContent = `
-            #tableContainer {
-                --row-expand-max: ${bodyRowHeight}px;
-                --row-expand-max-last: ${lastRowHeight}px;
-                --cell-padding-vertical: ${paddingVertical}px;
-            }
-            table {
-                width: 100%;
-                height: 100%;
-                table-layout: fixed;
-                border-collapse: collapse;
-            }
-            tbody tr.static-row,
-            tbody tr.expanded-row {
-                height: ${bodyRowHeight}px;
-                max-height: ${bodyRowHeight}px;
-                box-sizing: border-box;
-            }
-            tbody tr.static-row td,
-            tbody tr.expanded-row td {
-                height: ${bodyRowHeight}px;
-                max-height: ${bodyRowHeight}px;
-                box-sizing: border-box;
-                overflow: hidden;
-            }
-            tbody tr.static-row:last-child,
-            tbody tr.expanded-row:last-child {
-                height: ${lastRowHeight}px;
-                max-height: ${lastRowHeight}px;
-            }
-            tbody tr.static-row:last-child td,
-            tbody tr.expanded-row:last-child td {
-                height: ${lastRowHeight}px;
-                max-height: ${lastRowHeight}px;
-            }
-            th {
-                font-size: ${thFontSize}px !important;
-                padding: 6px 4px !important;
-                line-height: 1.2;
-                box-sizing: border-box;
-                vertical-align: middle;
-            }
-            td {
-                font-size: ${fontSize}px !important;
-                padding: ${paddingVertical}px 4px !important;
-                line-height: 1.2;
-                box-sizing: border-box;
-                vertical-align: middle;
-            }
-            .rank-cell {
-                font-size: ${fontSize + 2}px !important;
-            }
-            .wealth-cell {
-                font-size: ${fontSize + 1}px !important;
-            }
-            .change-up, .change-down {
-                font-size: ${Math.max(8, fontSize)}px !important;
-            }
-        `;
-        
-        const oldStyle = document.getElementById('dynamic-table-styles');
-        if (oldStyle) {
-            oldStyle.remove();
-        }
-        document.head.appendChild(style);
+
+        applyDynamicTableStyle(tableScrollWrapper, {
+            bodyRowHeight,
+            lastRowHeight,
+            paddingVertical,
+            thFontSize,
+            fontSize
+        });
     } catch (e) {
         console.error('Error adjusting table sizes:', e);
     }
@@ -292,30 +666,42 @@ function adjustTableSizes() {
 
 function renderTable() {
     try {
-        const data = JSON.parse(document.getElementById('dataInput').value);
-        if (!Array.isArray(data) || data.length === 0) return;
+        const data = parseTableData();
+        if (!data) return;
 
-        const keys = Object.keys(data[0]);
-        const tableContainer = document.getElementById('tableContainer');
+        const sortedData = getSortedData(data);
+        const allKeys = getDisplayKeys(sortedData);
+        syncColumnConfigs(allKeys);
+        const visibleKeys = allKeys.filter(key => columnConfigs[key]?.visible !== false);
+        const keySignature = allKeys.join('||');
+        if (keySignature !== currentColumnKeysSignature) {
+            renderColumnConfigPanel(allKeys, visibleKeys);
+            currentColumnKeysSignature = keySignature;
+        }
+        const normalizedWidths = getNormalizedColumnWidths(visibleKeys);
+        const tableScrollWrapper = document.getElementById('tableScrollWrapper');
         
-        let html = '<table><thead><tr>';
+        let html = '<table><colgroup>';
+        visibleKeys.forEach(key => {
+            const width = normalizedWidths[key] || 0;
+            html += `<col style="width:${width.toFixed(4)}%;">`;
+        });
+        html += '</colgroup><thead><tr>';
         
-        keys.forEach(key => {
-            if (key !== '排名变动') {
-                html += `<th>${key}</th>`;
-            }
+        visibleKeys.forEach(key => {
+            const styles = buildColumnStyles(columnConfigs[key]);
+            html += `<th style="${styles.headerStyle}">${escapeHTML(key)}</th>`;
         });
         
         html += '</tr></thead><tbody>';
         
-        data.forEach((row, index) => {
+        sortedData.forEach(row => {
             html += '<tr class="static-row">';
             
-            keys.forEach(key => {
-                if (key === '排名变动') return;
-                
+            visibleKeys.forEach(key => {
                 let cellClass = '';
-                let cellContent = row[key];
+                let cellContent = escapeHTML(row[key] ?? '');
+                const styles = buildColumnStyles(columnConfigs[key]);
                 
                 if (key === '排名') {
                     cellClass = 'rank-cell';
@@ -332,16 +718,16 @@ function renderTable() {
                     cellClass = 'company-cell';
                 }
                 
-                html += `<td class="${cellClass}">${cellContent}</td>`;
+                html += `<td class="${cellClass}" style="${styles.cellStyle}">${cellContent}</td>`;
             });
             
             html += '</tr>';
         });
         
         html += '</tbody></table>';
-        tableContainer.innerHTML = html;
+        tableScrollWrapper.innerHTML = html;
         
-        setTimeout(adjustTableSizes, 200);
+        scheduleAdjustTableSizes(200);
     } catch (e) {
         console.error('Error rendering table:', e);
     }
@@ -585,6 +971,31 @@ function drawTextInRect(context, text, rect, style, align = 'left', renderState 
     context.restore();
 }
 
+function drawBarrageLayerToCanvas(previewPanel, context, toLocalRect, renderState = null) {
+    const barrageLayer = previewPanel.querySelector('#barrageLayer');
+    if (!barrageLayer) return;
+    const barrageItems = Array.from(barrageLayer.querySelectorAll('.barrage-item'));
+    barrageItems.forEach((item, index) => {
+        const itemRect = item.getBoundingClientRect();
+        if (itemRect.width <= 0 || itemRect.height <= 0) return;
+        const localRect = toLocalRect(itemRect);
+        const itemStyle = getComputedStyle(item);
+        const borderWidth = parseFloat(itemStyle.borderWidth) || 1;
+        drawRoundedRect(
+            context,
+            localRect.x,
+            localRect.y,
+            localRect.width,
+            localRect.height,
+            localRect.height / 2,
+            itemStyle.backgroundColor,
+            itemStyle.borderColor,
+            borderWidth
+        );
+        drawTextInRect(context, item.textContent || '', localRect, itemStyle, 'center', renderState, `barrage-${index}`);
+    });
+}
+
 function drawPreviewPanelToCanvas(previewPanel, context, width, height, renderState = null, drawBackground = true) {
     const panelRect = previewPanel.getBoundingClientRect();
     const toLocalRect = rect => ({
@@ -634,7 +1045,11 @@ function drawPreviewPanelToCanvas(previewPanel, context, width, height, renderSt
     const containerStyle = getComputedStyle(tableContainer);
     const rowHeightDefault = parseFloat(containerStyle.getPropertyValue('--row-expand-max')) || null;
     const rowHeightLast = parseFloat(containerStyle.getPropertyValue('--row-expand-max-last')) || rowHeightDefault;
-    const tbody = tableContainer.querySelector('tbody');
+    const scrollWrapper = tableContainer.querySelector('#tableScrollWrapper');
+    const table = scrollWrapper?.querySelector('table');
+    const thead = table?.querySelector('thead');
+    const tbody = table?.querySelector('tbody');
+    
     drawRoundedRect(
         context,
         containerRect.x,
@@ -647,51 +1062,124 @@ function drawPreviewPanelToCanvas(previewPanel, context, width, height, renderSt
         parseFloat(containerStyle.borderWidth) || 1
     );
 
-    const rows = Array.from(tableContainer.querySelectorAll('tr'));
-    for (const row of rows) {
-        const rowStyle = getComputedStyle(row);
-        const rowOpacity = Number.parseFloat(rowStyle.opacity || '1');
-        if (rowOpacity <= 0.02) continue;
+    context.save();
+    context.beginPath();
+    context.rect(containerRect.x, containerRect.y, containerRect.width, containerRect.height);
+    context.clip();
 
-        const cells = Array.from(row.children);
-        for (const cell of cells) {
-            const cellRect = cell.getBoundingClientRect();
-            if (cellRect.width <= 0 || cellRect.height <= 0) continue;
+    // 绘制表头（固定在顶部）
+    if (thead) {
+        const headerRows = Array.from(thead.querySelectorAll('tr'));
+        for (const row of headerRows) {
+            const rowStyle = getComputedStyle(row);
+            const rowOpacity = Number.parseFloat(rowStyle.opacity || '1');
+            if (rowOpacity <= 0.02) continue;
 
-            const localRect = toLocalRect(cellRect);
-            const cellStyle = getComputedStyle(cell);
+            const cells = Array.from(row.children);
+            for (const cell of cells) {
+                const cellRect = cell.getBoundingClientRect();
+                if (cellRect.width <= 0 || cellRect.height <= 0) continue;
 
+                const localRect = toLocalRect(cellRect);
+                const cellStyle = getComputedStyle(cell);
+
+                context.save();
+                context.globalAlpha = rowOpacity;
+
+                if (hasVisibleColor(rowStyle.backgroundColor)) {
+                    context.fillStyle = rowStyle.backgroundColor;
+                    context.fillRect(localRect.x, localRect.y, localRect.width, localRect.height);
+                }
+
+                if (hasVisibleColor(cellStyle.backgroundColor)) {
+                    context.fillStyle = cellStyle.backgroundColor;
+                    context.fillRect(localRect.x, localRect.y, localRect.width, localRect.height);
+                }
+
+                if (cellStyle.borderBottomWidth !== '0px' && cellStyle.borderBottomColor) {
+                    context.strokeStyle = cellStyle.borderBottomColor;
+                    context.lineWidth = parseFloat(cellStyle.borderBottomWidth) || 1;
+                    context.beginPath();
+                    context.moveTo(localRect.x, localRect.y + localRect.height);
+                    context.lineTo(localRect.x + localRect.width, localRect.y + localRect.height);
+                    context.stroke();
+                }
+
+                const cellSeed = `header-${cell.cellIndex || 0}`;
+                drawTextInRect(context, cell.textContent || '', localRect, cellStyle, 'left', renderState, cellSeed, cellRect.height);
+                context.restore();
+            }
+        }
+    }
+
+    // 绘制表体（受滚动影响）
+    if (tbody && scrollWrapper && thead) {
+        // 获取表头的实际位置，表体应该从表头下边缘开始裁剪
+        const headerRect = thead.getBoundingClientRect();
+        const wrapperRect = scrollWrapper.getBoundingClientRect();
+        
+        const clipLeft = wrapperRect.left - panelRect.left;
+        const clipTop = headerRect.bottom - panelRect.top; // 从表头下边缘开始
+        const clipWidth = wrapperRect.width;
+        const clipHeight = wrapperRect.bottom - headerRect.bottom; // 表头下边缘到 wrapper 底部
+        
+        if (clipHeight > 0) {
             context.save();
-            context.globalAlpha = rowOpacity;
+            context.beginPath();
+            context.rect(clipLeft, clipTop, clipWidth, clipHeight);
+            context.clip();
 
-            if (hasVisibleColor(rowStyle.backgroundColor)) {
-                context.fillStyle = rowStyle.backgroundColor;
-                context.fillRect(localRect.x, localRect.y, localRect.width, localRect.height);
+            const bodyRows = Array.from(tbody.querySelectorAll('tr'));
+            for (const row of bodyRows) {
+                const rowStyle = getComputedStyle(row);
+                const rowOpacity = Number.parseFloat(rowStyle.opacity || '1');
+                if (rowOpacity <= 0.02) continue;
+
+                const cells = Array.from(row.children);
+                for (const cell of cells) {
+                    const cellRect = cell.getBoundingClientRect();
+                    if (cellRect.width <= 0 || cellRect.height <= 0) continue;
+
+                    const localRect = toLocalRect(cellRect);
+                    const cellStyle = getComputedStyle(cell);
+
+                    context.save();
+                    context.globalAlpha = rowOpacity;
+
+                    if (hasVisibleColor(rowStyle.backgroundColor)) {
+                        context.fillStyle = rowStyle.backgroundColor;
+                        context.fillRect(localRect.x, localRect.y, localRect.width, localRect.height);
+                    }
+
+                    if (hasVisibleColor(cellStyle.backgroundColor)) {
+                        context.fillStyle = cellStyle.backgroundColor;
+                        context.fillRect(localRect.x, localRect.y, localRect.width, localRect.height);
+                    }
+
+                    if (cellStyle.borderBottomWidth !== '0px' && cellStyle.borderBottomColor) {
+                        context.strokeStyle = cellStyle.borderBottomColor;
+                        context.lineWidth = parseFloat(cellStyle.borderBottomWidth) || 1;
+                        context.beginPath();
+                        context.moveTo(localRect.x, localRect.y + localRect.height);
+                        context.lineTo(localRect.x + localRect.width, localRect.y + localRect.height);
+                        context.stroke();
+                    }
+
+                    const isLastBodyRow = tbody.lastElementChild === row;
+                    const stableHeight = isLastBodyRow ? rowHeightLast : rowHeightDefault;
+                    const rowClassSeed = `${row.rowIndex || 0}`;
+                    const cellSeed = `${rowClassSeed}-${cell.cellIndex || 0}`;
+                    drawTextInRect(context, cell.textContent || '', localRect, cellStyle, 'left', renderState, cellSeed, stableHeight);
+                    context.restore();
+                }
             }
-
-            if (hasVisibleColor(cellStyle.backgroundColor)) {
-                context.fillStyle = cellStyle.backgroundColor;
-                context.fillRect(localRect.x, localRect.y, localRect.width, localRect.height);
-            }
-
-            if (cellStyle.borderBottomWidth !== '0px' && cellStyle.borderBottomColor) {
-                context.strokeStyle = cellStyle.borderBottomColor;
-                context.lineWidth = parseFloat(cellStyle.borderBottomWidth) || 1;
-                context.beginPath();
-                context.moveTo(localRect.x, localRect.y + localRect.height);
-                context.lineTo(localRect.x + localRect.width, localRect.y + localRect.height);
-                context.stroke();
-            }
-
-            const isBodyRow = tbody ? row.parentElement === tbody : false;
-            const isLastBodyRow = isBodyRow && tbody.lastElementChild === row;
-            const stableHeight = isBodyRow ? (isLastBodyRow ? rowHeightLast : rowHeightDefault) : null;
-            const rowClassSeed = `${row.rowIndex || 0}`;
-            const cellSeed = `${rowClassSeed}-${cell.cellIndex || 0}`;
-            drawTextInRect(context, cell.textContent || '', localRect, cellStyle, 'left', renderState, cellSeed, stableHeight);
+            
             context.restore();
         }
     }
+    context.restore();
+
+    drawBarrageLayerToCanvas(previewPanel, context, toLocalRect, renderState);
 }
 
 async function startAutomaticRecorder(previewPanel, shouldRecord = true) {
@@ -795,15 +1283,25 @@ async function startAutomaticRecorder(previewPanel, shouldRecord = true) {
 function runTableAnimation() {
     return new Promise((resolve, reject) => {
         try {
-            const rows = document.querySelectorAll('#tableContainer tbody tr');
+            const rows = document.querySelectorAll('#tableScrollWrapper tbody tr');
             if (rows.length === 0) {
                 resolve();
                 return;
             }
 
+            tableScrollY = 0;
+
             const interval = parseInt(document.getElementById('animationInterval').value) || 300;
             const animationClass = getSelectedAnimationClass();
-            isAnimating = true;
+            const scrollWrapper = document.getElementById('tableScrollWrapper');
+            const table = scrollWrapper.querySelector('table');
+            const tbody = table.querySelector('tbody');
+            const containerHeight = scrollWrapper.clientHeight;
+
+            const thead = table.querySelector('thead');
+            const headerHeight = thead ? thead.getBoundingClientRect().height : 0;
+            const totalRows = rows.length;
+            const visibleBodyHeight = containerHeight - headerHeight;
 
             rows.forEach(row => {
                 rowAnimationClasses.forEach(typeClass => row.classList.remove(typeClass));
@@ -812,31 +1310,120 @@ function runTableAnimation() {
                 row.classList.add('collapsed-row');
             });
 
+            rows.forEach(row => {
+                row.classList.remove('collapsed-row');
+                row.classList.add('expanded-row');
+                row.style.visibility = 'hidden';
+            });
+
+            const fullTableBodyHeight = tbody.getBoundingClientRect().height;
+            const measuredRowHeight = fullTableBodyHeight / totalRows;
+
+            rows.forEach(row => {
+                row.classList.remove('expanded-row');
+                row.classList.add('collapsed-row');
+                row.style.visibility = '';
+            });
+
+            const maxVisibleRows = Math.max(1, Math.floor(visibleBodyHeight / measuredRowHeight));
+            const totalScrollNeeded = Math.max(0, fullTableBodyHeight - visibleBodyHeight);
+
+            tbody.style.transform = 'translateY(0)';
+            tbody.style.willChange = 'transform';
+
             let currentIndex = 0;
+            let resolveCalled = false;
+            let animationStartTime = null;
+            let scrollStartTime = null;
+            let isScrolling = false;
 
             if (animationInterval) {
                 clearInterval(animationInterval);
+                animationInterval = null;
             }
 
-            animationInterval = setInterval(() => {
-                if (currentIndex < rows.length) {
+            const animate = (timestamp) => {
+                if (!animationStartTime) {
+                    animationStartTime = timestamp;
+                }
+                
+                const elapsed = timestamp - animationStartTime;
+                const expectedIndex = Math.floor(elapsed / interval);
+                
+                // 展开行
+                while (currentIndex < rows.length && currentIndex <= expectedIndex) {
                     rows[currentIndex].classList.remove('collapsed-row');
                     rows[currentIndex].classList.add('expanded-row');
                     currentIndex++;
-                    return;
                 }
-
-                clearInterval(animationInterval);
-                animationInterval = null;
-                isAnimating = false;
-                resolve();
-            }, interval);
+                
+                // 当展开的行数超过可见区域时，开始连续滚动
+                if (currentIndex > maxVisibleRows && !isScrolling) {
+                    isScrolling = true;
+                    scrollStartTime = timestamp;
+                }
+                
+                // 连续平滑滚动
+                if (isScrolling && scrollStartTime) {
+                    const scrollElapsed = timestamp - scrollStartTime;
+                    // 滚动速度：每 interval 毫秒滚动一行高度
+                    const scrollSpeed = measuredRowHeight / interval;
+                    const currentScrollY = Math.min(scrollElapsed * scrollSpeed, totalScrollNeeded);
+                    tbody.style.transform = `translateY(-${currentScrollY}px)`;
+                }
+                
+                // 检查是否完成
+                if (currentIndex < rows.length) {
+                    requestAnimationFrame(animate);
+                } else if (isScrolling) {
+                    // 所有行已展开，继续滚动直到完成
+                    const scrollElapsed = timestamp - scrollStartTime;
+                    const scrollSpeed = measuredRowHeight / interval;
+                    const currentScrollY = Math.min(scrollElapsed * scrollSpeed, totalScrollNeeded);
+                    
+                    if (currentScrollY < totalScrollNeeded) {
+                        tbody.style.transform = `translateY(-${currentScrollY}px)`;
+                        requestAnimationFrame(animate);
+                    } else {
+                        // 动画完成，等待后重置
+                        setTimeout(() => {
+                            tbody.style.transition = 'transform 0.8s cubic-bezier(0.25, 0.1, 0.25, 1)';
+                            tbody.style.transform = 'translateY(0)';
+                            tableScrollY = 0;
+                            setTimeout(() => {
+                                tbody.style.transition = 'none';
+                                tbody.style.willChange = '';
+                                if (!resolveCalled) {
+                                    resolveCalled = true;
+                                    resolve();
+                                }
+                            }, 800);
+                        }, 2000);
+                    }
+                } else {
+                    // 没有滚动需求，直接完成
+                    setTimeout(() => {
+                        tbody.style.transition = 'transform 0.8s cubic-bezier(0.25, 0.1, 0.25, 1)';
+                        tbody.style.transform = 'translateY(0)';
+                        tableScrollY = 0;
+                        setTimeout(() => {
+                            tbody.style.transition = 'none';
+                            tbody.style.willChange = '';
+                            if (!resolveCalled) {
+                                resolveCalled = true;
+                                resolve();
+                            }
+                        }, 800);
+                    }, 2000);
+                }
+            };
+            
+            requestAnimationFrame(animate);
         } catch (e) {
             if (animationInterval) {
                 clearInterval(animationInterval);
                 animationInterval = null;
             }
-            isAnimating = false;
             reject(e);
         }
     });
@@ -854,6 +1441,10 @@ async function playAnimation() {
     }
 
     try {
+        // 添加一个全局类名阻止布局变化
+        document.body.classList.add('animation-running');
+        isAnimating = true; // 提前设置状态，以便后续流程正确判断
+        
         renderTable();
         updatePreview();
         await wait(120);
@@ -861,14 +1452,28 @@ async function playAnimation() {
         await wait(80);
         await runTableAnimation();
         await wait(120);
+        
+        // 动画结束，清理弹幕
+        const barrageLayer = document.getElementById('barrageLayer');
+        if (barrageLayer) barrageLayer.innerHTML = '';
     } catch (e) {
         console.error('Error playing animation:', e);
     } finally {
+        isAnimating = false; // 重置状态
+        document.body.classList.remove('animation-running');
         playBtn.disabled = false;
         playBtn.textContent = '动画预览';
         if (exportBtn && !isExporting) {
             exportBtn.disabled = false;
         }
+        // 重置表格位置
+        const tableScrollWrapper = document.getElementById('tableScrollWrapper');
+        const table = tableScrollWrapper?.querySelector('table');
+        if (table) {
+            table.style.transition = '';
+            table.style.transform = 'translateY(0)';
+        }
+        tableScrollY = 0;
     }
 }
 
@@ -886,6 +1491,10 @@ async function exportAnimationVideo() {
     let recordingSession = null;
 
     try {
+        // 添加一个全局类名阻止布局变化
+        document.body.classList.add('animation-running');
+        isExporting = true; // 提前设置状态
+        
         renderTable();
         updatePreview();
         await wait(120);
@@ -916,10 +1525,15 @@ async function exportAnimationVideo() {
 
         exportBtn.textContent = '导出成功';
         await wait(600);
+        
+        // 导出结束，清理弹幕
+        const barrageLayer = document.getElementById('barrageLayer');
+        if (barrageLayer) barrageLayer.innerHTML = '';
     } catch (e) {
         console.error('Error exporting animation video:', e);
         alert(`视频导出失败：${e.message || '请重试'}`);
     } finally {
+        document.body.classList.remove('animation-running');
         if (recordingSession) {
             try {
                 await recordingSession.stop();
@@ -934,6 +1548,14 @@ async function exportAnimationVideo() {
         playBtn.textContent = '动画预览';
         exportBtn.disabled = false;
         exportBtn.textContent = '导出视频';
+        // 重置表格位置
+        const tableScrollWrapper = document.getElementById('tableScrollWrapper');
+        const table = tableScrollWrapper?.querySelector('table');
+        if (table) {
+            table.style.transition = '';
+            table.style.transform = 'translateY(0)';
+        }
+        tableScrollY = 0;
     }
 }
 

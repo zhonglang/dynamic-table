@@ -100,6 +100,130 @@ body {
     resize: vertical;
 }
 
+.column-config-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.column-config-empty {
+    font-size: 13px;
+    color: #94a3b8;
+}
+
+.column-config-card {
+    border: 1px solid rgba(148, 163, 184, 0.28);
+    border-radius: 8px;
+    padding: 10px;
+    background: rgba(15, 23, 42, 0.45);
+}
+
+.column-config-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: #f8fafc;
+    margin-bottom: 10px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.column-config-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.column-config-field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.column-config-field label {
+    font-size: 12px;
+    color: #cbd5e1;
+    margin-bottom: 0;
+}
+
+.column-config-field input[type="number"],
+.column-config-field input[type="color"] {
+    width: 100%;
+}
+
+.column-config-field.checkbox-field {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.column-config-field.checkbox-field label {
+    margin: 0;
+}
+
+.column-config-field input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: #3b82f6;
+}
+
+.column-list-header {
+    font-size: 12px;
+    color: #94a3b8;
+    margin-bottom: 10px;
+    padding: 0 2px;
+}
+
+.column-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.column-list-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: #cbd5e1;
+    cursor: pointer;
+    padding: 5px 10px;
+    background: rgba(30, 41, 59, 0.5);
+    border-radius: 6px;
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    transition: all 0.2s;
+}
+
+.column-list-item:hover {
+    border-color: rgba(59, 130, 246, 0.5);
+    background: rgba(30, 41, 59, 0.8);
+}
+
+.column-list-item.active {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.35) 0%, rgba(99, 102, 241, 0.3) 100%);
+    border-color: rgba(96, 165, 250, 0.7);
+    color: #f8fafc;
+}
+
+.column-list-item.hidden {
+    opacity: 0.5;
+    text-decoration: line-through;
+}
+
+.column-visibility-checkbox {
+    width: 14px;
+    height: 14px;
+    accent-color: #3b82f6;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.column-list-label {
+    cursor: pointer;
+    white-space: nowrap;
+}
+
 .background-grid {
     display: grid;
     grid-template-columns: repeat(5, 1fr);
@@ -223,7 +347,6 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    backdrop-filter: blur(3px);
     border: 1px solid rgba(255, 255, 255, 0.12);
 }
 
@@ -246,31 +369,93 @@ body {
     display: flex;
     flex-direction: column;
     min-height: 0;
-    padding-bottom: 50px;
+    padding-bottom: 24px;
     padding-left: 20px;
     padding-right: 20px;
 }
 
+.barrage-layer {
+    position: absolute;
+    left: 10px;
+    right: 10px;
+    top: 0;
+    bottom: 0;
+    overflow: hidden;
+    pointer-events: none;
+    z-index: 3;
+    contain: layout paint;
+}
+
+.barrage-item {
+    position: absolute;
+    left: -62%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    white-space: nowrap;
+    padding: 4px 14px;
+    border-radius: 999px;
+    border: 1px solid rgba(226, 232, 240, 0.72);
+    background: rgba(15, 23, 42, 0.45);
+    text-shadow: 0 1px 3px rgba(15, 23, 42, 0.75);
+    animation-name: barrageMove;
+    animation-timing-function: linear;
+    animation-iteration-count: infinite;
+    will-change: left;
+    transform: translateZ(0);
+}
+
+.barrage-item.paused {
+    animation-play-state: paused;
+}
+
+@keyframes barrageMove {
+    0% {
+        left: -62%;
+    }
+    100% {
+        left: 110%;
+    }
+}
+
 .table-container {
-    background: rgba(30, 41, 59, 0.3);
     border-radius: 12px;
     border: 1px solid rgba(148, 163, 184, 0.12);
     overflow: hidden;
-    backdrop-filter: blur(10px);
     flex: 1;
     display: flex;
     flex-direction: column;
     min-height: 0;
+    max-height: 100%;
+}
+
+.table-scroll-wrapper {
+    overflow: hidden;
+    flex: 1;
+    min-height: 0;
+    position: relative;
 }
 
 table {
     width: 100%;
+    /* 移除 height: 100% 避免由于小数计算被撑破 */
     border-collapse: collapse;
     table-layout: fixed;
 }
 
+.table-scroll-wrapper table {
+    transition: transform 0.28s cubic-bezier(0.25, 0.1, 0.25, 1);
+}
+
+.table-scroll-wrapper table tbody {
+    transition: none;
+}
+
 th {
-    background: rgba(15, 23, 42, 0.22);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: rgba(15, 23, 42, 0.95);
     padding: 6px 4px;
     text-align: left;
     font-size: 12px;
@@ -289,14 +474,6 @@ td {
 
 tr:last-child td {
     border-bottom: none;
-}
-
-tr:nth-child(even) {
-    background: rgba(15, 23, 42, 0.1);
-}
-
-tr:hover {
-    background: rgba(59, 130, 246, 0.06);
 }
 
 .rank-cell {
@@ -325,6 +502,12 @@ tr:hover {
     color: #ef4444;
     font-size: 10px;
     margin-left: 4px;
+}
+
+body.animation-running .table-container {
+    height: var(--fixed-table-height, auto);
+    min-height: var(--fixed-table-height, auto);
+    max-height: var(--fixed-table-height, auto);
 }
 
 ::-webkit-scrollbar {
@@ -423,12 +606,10 @@ tr:hover {
 @keyframes revealExpandRow {
     0% {
         opacity: 0;
-        max-height: 0;
-        transform: scaleY(0);
+        transform: scaleY(0.9);
     }
     100% {
         opacity: 1;
-        max-height: var(--row-expand-max, 100px);
         transform: scaleY(1);
     }
 }
@@ -436,12 +617,10 @@ tr:hover {
 @keyframes revealSlideLeftRow {
     0% {
         opacity: 0;
-        max-height: 0;
         transform: translateX(-70px);
     }
     100% {
         opacity: 1;
-        max-height: var(--row-expand-max, 100px);
         transform: translateX(0);
     }
 }
@@ -449,12 +628,10 @@ tr:hover {
 @keyframes revealSlideRightRow {
     0% {
         opacity: 0;
-        max-height: 0;
         transform: translateX(70px);
     }
     100% {
         opacity: 1;
-        max-height: var(--row-expand-max, 100px);
         transform: translateX(0);
     }
 }
@@ -462,12 +639,10 @@ tr:hover {
 @keyframes revealRiseUpRow {
     0% {
         opacity: 0;
-        max-height: 0;
         transform: translateY(20px);
     }
     100% {
         opacity: 1;
-        max-height: var(--row-expand-max, 100px);
         transform: translateY(0);
     }
 }
@@ -475,40 +650,33 @@ tr:hover {
 @keyframes revealZoomInRow {
     0% {
         opacity: 0;
-        max-height: 0;
         transform: scale(0.86);
     }
     100% {
         opacity: 1;
-        max-height: var(--row-expand-max, 100px);
         transform: scale(1);
     }
 }
 
 @keyframes expandCell {
     0% {
-        border-bottom-width: 0;
-        padding-top: 0;
-        padding-bottom: 0;
+        border-bottom-color: transparent;
     }
     100% {
-        border-bottom-width: 1px;
-        padding-top: var(--cell-padding-vertical, 4px);
-        padding-bottom: var(--cell-padding-vertical, 4px);
+        border-bottom-color: rgba(51, 65, 85, 0.22);
     }
 }
 
 tbody tr.collapsed-row {
     opacity: 0;
-    max-height: 0;
     transform: none;
     transform-origin: center;
-    overflow: hidden;
+    visibility: hidden;
 }
 
 tbody tr.anim-type-expand.collapsed-row {
-    transform: scaleY(0);
-    transform-origin: top;
+    transform: scaleY(0.9);
+    transform-origin: center;
 }
 
 tbody tr.anim-type-slide-left.collapsed-row {
@@ -528,19 +696,17 @@ tbody tr.anim-type-zoom-in.collapsed-row {
 }
 
 tbody tr.collapsed-row td {
-    border-bottom: 0 solid rgba(51, 65, 85, 0.22);
-    padding-top: 0;
-    padding-bottom: 0;
+    border-bottom-color: transparent;
 }
 
 tbody tr.expanded-row {
     transform-origin: center;
-    will-change: transform, opacity, max-height;
+    will-change: transform, opacity;
+    visibility: visible;
 }
 
 tbody tr.anim-type-expand.expanded-row {
     animation: revealExpandRow 0.42s ease-out forwards;
-    transform-origin: top;
 }
 
 tbody tr.anim-type-slide-left.expanded-row {
@@ -565,8 +731,6 @@ tbody tr.expanded-row:last-child {
 
 tbody tr.expanded-row td {
     animation: expandCell 0.4s ease-out forwards;
-    border-bottom-style: solid;
-    border-bottom-color: rgba(51, 65, 85, 0.22);
 }
 
 tbody tr.expanded-row:last-child td {

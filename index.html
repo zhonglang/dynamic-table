@@ -163,8 +163,126 @@
     "主要公司": "微软",
     "年龄": 69,
     "排名变动": "下降"
+  },
+  {
+    "排名": 11,
+    "姓名": "穆克什·安巴尼",
+    "财富(亿元人民币)": 10500,
+    "主要公司": "信实工业",
+    "年龄": 67
+  },
+  {
+    "排名": 12,
+    "姓名": "高塔姆·阿达尼",
+    "财富(亿元人民币)": 10200,
+    "主要公司": "阿达尼集团",
+    "年龄": 62
+  },
+  {
+    "排名": 13,
+    "姓名": "卡洛斯·斯利姆",
+    "财富(亿元人民币)": 9800,
+    "主要公司": "美洲电信",
+    "年龄": 84
+  },
+  {
+    "排名": 14,
+    "姓名": "拉里·芬克",
+    "财富(亿元人民币)": 9500,
+    "主要公司": "贝莱德",
+    "年龄": 71
+  },
+  {
+    "排名": 15,
+    "姓名": "钟睒睒",
+    "财富(亿元人民币)": 9300,
+    "主要公司": "农夫山泉",
+    "年龄": 69
+  },
+  {
+    "排名": 16,
+    "姓名": "马化腾",
+    "财富(亿元人民币)": 8900,
+    "主要公司": "腾讯",
+    "年龄": 53
+  },
+  {
+    "排名": 17,
+    "姓名": "马云",
+    "财富(亿元人民币)": 8600,
+    "主要公司": "阿里巴巴",
+    "年龄": 59
+  },
+  {
+    "排名": 18,
+    "姓名": "李嘉诚",
+    "财富(亿元人民币)": 8300,
+    "主要公司": "长江和记实业",
+    "年龄": 95
+  },
+  {
+    "排名": 19,
+    "姓名": "王健林",
+    "财富(亿元人民币)": 8100,
+    "主要公司": "万达集团",
+    "年龄": 69
+  },
+  {
+    "排名": 20,
+    "姓名": "何享健",
+    "财富(亿元人民币)": 7800,
+    "主要公司": "美的集团",
+    "年龄": 81
   }
 ]</textarea>
+                </div>
+            </div>
+
+            <div class="config-section">
+                <h3>排序配置</h3>
+                <div class="config-item">
+                    <label>排序列</label>
+                    <select id="sortColumn">
+                        <option value="">-- 不排序 --</option>
+                    </select>
+                </div>
+                <div class="config-item">
+                    <label>排序方式</label>
+                    <select id="sortOrder">
+                        <option value="asc">升序 (从小到大)</option>
+                        <option value="desc">降序 (从大到小)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="config-section">
+                <h3>列配置</h3>
+                <div class="config-item">
+                    <div id="columnConfigList" class="column-config-list"></div>
+                </div>
+            </div>
+
+            <div class="config-section">
+                <h3>弹幕配置</h3>
+                <div class="config-item">
+                    <label style="display: flex; align-items: center; cursor: pointer;">
+                        <input type="checkbox" id="barrageEnabled" style="margin-right: 8px;">
+                        启用弹幕
+                    </label>
+                </div>
+                <div class="config-item">
+                    <label>弹幕内容（每行一条）</label>
+                    <textarea id="barrageInput" rows="5">马斯克继续稳居榜首
+AI产业推动财富增长
+中国企业家表现亮眼</textarea>
+                </div>
+                <div class="config-item">
+                    <label>弹幕字体大小</label>
+                    <input type="number" id="barrageFontSize" value="16" min="10" max="48">
+                </div>
+                <div class="config-item">
+                    <label>弹幕字体颜色</label>
+                    <input type="color" id="barrageColor" value="#ffffff">
                 </div>
             </div>
         </div>
@@ -177,8 +295,11 @@
                         <h1 class="title" id="previewTitle">2026胡润全球富豪榜出炉</h1>
                     </div>
                     <div class="table-wrapper">
-                        <div class="table-container" id="tableContainer"></div>
+                        <div class="table-container" id="tableContainer">
+                            <div class="table-scroll-wrapper" id="tableScrollWrapper"></div>
+                        </div>
                     </div>
+                    <div class="barrage-layer" id="barrageLayer"></div>
                 </div>
                 <canvas id="previewCanvas"></canvas>
             </div>
