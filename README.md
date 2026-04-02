@@ -105,7 +105,7 @@ dynamic-table/
 ├── styles.css      # 样式文件
 ├── script.js       # 核心逻辑
 ├── README.md       # 项目文档
-└── package.json    # 依赖配置
+└── （无 package.json）  # 纯前端静态页面，无构建依赖
 ```
 
 ## 适用场景

@@ -43,10 +43,30 @@ function escapeHTML(value) {
         .replace(/'/g, '&#39;');
 }
 
+let cachedTableDataText = null;
+let cachedTableData = null;
+
 function parseTableData() {
-    const data = JSON.parse(document.getElementById('dataInput').value);
-    if (!Array.isArray(data) || data.length === 0) return null;
-    return data;
+    const dataInput = document.getElementById('dataInput');
+    const text = dataInput?.value || '';
+    if (text && text === cachedTableDataText && cachedTableData) {
+        return cachedTableData;
+    }
+
+    try {
+        const data = JSON.parse(text);
+        if (!Array.isArray(data) || data.length === 0) {
+            cachedTableDataText = null;
+            cachedTableData = null;
+            return null;
+        }
+        cachedTableDataText = text;
+        cachedTableData = data;
+        return data;
+    } catch (e) {
+        // JSON 未完成输入时也会触发 change/input；避免反复报错和无意义的重渲染。
+        return null;
+    }
 }
 
 function getDisplayKeys(data) {
@@ -391,10 +411,22 @@ function updateSortColumnOptions() {
 
     const data = parseTableData();
     const keys = data && data.length > 0 ? Object.keys(data[0]) : [];
-    const numericKeys = keys.filter(key => {
-        if (key === '排名变动') return false;
-        const values = data.map(row => row[key]);
-        return values.some(v => typeof v === 'number' || !isNaN(Number(v)));
+    const numericKeys = [];
+    keys.forEach(key => {
+        if (key === '排名变动') return;
+        let isNumeric = false;
+        for (let i = 0; i < data.length; i++) {
+            const v = data[i]?.[key];
+            if (typeof v === 'number') {
+                isNumeric = true;
+                break;
+            }
+            if (!isNaN(Number(v))) {
+                isNumeric = true;
+                break;
+            }
+        }
+        if (isNumeric) numericKeys.push(key);
     });
 
     const currentValue = select.value;
@@ -971,16 +1003,160 @@ function drawTextInRect(context, text, rect, style, align = 'left', renderState 
     context.restore();
 }
 
+function buildExportBarrageRenderCache(previewPanel) {
+    const barrageLayer = previewPanel.querySelector('#barrageLayer');
+    if (!barrageLayer) return null;
+    const barrageItems = Array.from(barrageLayer.querySelectorAll('.barrage-item'));
+    return {
+        items: barrageItems.map(item => {
+            const itemStyle = getComputedStyle(item);
+            return {
+                text: item.textContent || '',
+                borderWidth: parseFloat(itemStyle.borderWidth) || 1,
+                styleSnapshot: {
+                    backgroundColor: itemStyle.backgroundColor,
+                    borderColor: itemStyle.borderColor,
+                    color: itemStyle.color,
+                    fontSize: itemStyle.fontSize,
+                    lineHeight: itemStyle.lineHeight,
+                    fontWeight: itemStyle.fontWeight,
+                    fontFamily: itemStyle.fontFamily,
+                    paddingLeft: itemStyle.paddingLeft,
+                    paddingRight: itemStyle.paddingRight,
+                    paddingTop: itemStyle.paddingTop,
+                    paddingBottom: itemStyle.paddingBottom,
+                    textShadow: itemStyle.textShadow
+                }
+            };
+        })
+    };
+}
+
+function buildExportTableRenderCache(previewPanel) {
+    const tableContainer = previewPanel.querySelector('#tableContainer');
+    if (!tableContainer) return null;
+
+    const containerStyle = getComputedStyle(tableContainer);
+    const rowHeightDefault = parseFloat(containerStyle.getPropertyValue('--row-expand-max')) || null;
+    const rowHeightLast = parseFloat(containerStyle.getPropertyValue('--row-expand-max-last')) || rowHeightDefault;
+
+    const scrollWrapper = tableContainer.querySelector('#tableScrollWrapper');
+    const table = scrollWrapper?.querySelector('table');
+    const thead = table?.querySelector('thead');
+    const tbody = table?.querySelector('tbody');
+    if (!scrollWrapper || !table || !thead || !tbody) return null;
+
+    const wrapperRectAbs = scrollWrapper.getBoundingClientRect();
+    const headerRectAbs = thead.getBoundingClientRect();
+
+    const clipRectAbs = {
+        left: wrapperRectAbs.left,
+        top: headerRectAbs.bottom,
+        width: wrapperRectAbs.width,
+        height: wrapperRectAbs.bottom - headerRectAbs.bottom
+    };
+
+    const headerCells = [];
+    const headerRows = Array.from(thead.querySelectorAll('tr'));
+    for (const rowEl of headerRows) {
+        const cells = Array.from(rowEl.children);
+        for (const cellEl of cells) {
+            const cellRectAbs = cellEl.getBoundingClientRect();
+            if (cellRectAbs.width <= 0 || cellRectAbs.height <= 0) continue;
+            const cellStyle = getComputedStyle(cellEl);
+            headerCells.push({
+                cellIndex: cellEl.cellIndex || 0,
+                text: cellEl.textContent || '',
+                rectAbs: { left: cellRectAbs.left, top: cellRectAbs.top, width: cellRectAbs.width, height: cellRectAbs.height },
+                styleSnapshot: {
+                    backgroundColor: cellStyle.backgroundColor,
+                    borderBottomWidth: cellStyle.borderBottomWidth,
+                    borderBottomColor: cellStyle.borderBottomColor,
+                    color: cellStyle.color,
+                    fontSize: cellStyle.fontSize,
+                    lineHeight: cellStyle.lineHeight,
+                    fontWeight: cellStyle.fontWeight,
+                    fontFamily: cellStyle.fontFamily,
+                    paddingLeft: cellStyle.paddingLeft,
+                    paddingRight: cellStyle.paddingRight,
+                    paddingTop: cellStyle.paddingTop,
+                    paddingBottom: cellStyle.paddingBottom,
+                    textShadow: cellStyle.textShadow
+                }
+            });
+        }
+    }
+
+    const bodyRows = [];
+    const bodyRowEls = Array.from(tbody.querySelectorAll('tr'));
+    bodyRowEls.forEach((rowEl, rowIndex) => {
+        const rowRectAbs = rowEl.getBoundingClientRect();
+        const rowStyle = getComputedStyle(rowEl);
+        const cells = Array.from(rowEl.children);
+
+        const baseRowWidth = rowRectAbs.width || 1;
+        const baseRowHeight = rowRectAbs.height || 1;
+
+        bodyRows.push({
+            rowEl,
+            rowIndex,
+            baseRowRectAbs: { left: rowRectAbs.left, top: rowRectAbs.top, width: baseRowWidth, height: baseRowHeight },
+            backgroundColor: rowStyle.backgroundColor,
+            cells: cells.map((cellEl, cellIndex) => {
+                const cellRectAbs = cellEl.getBoundingClientRect();
+                return {
+                    cellIndex,
+                    text: cellEl.textContent || '',
+                    // 保存相对行的偏移：用于在动画缩放/位移时快速恢复像素位置
+                    offsetX: cellRectAbs.left - rowRectAbs.left,
+                    offsetY: cellRectAbs.top - rowRectAbs.top,
+                    width: cellRectAbs.width,
+                    height: cellRectAbs.height,
+                    styleSnapshot: (() => {
+                        const cs = getComputedStyle(cellEl);
+                        return {
+                            backgroundColor: cs.backgroundColor,
+                            borderBottomWidth: cs.borderBottomWidth,
+                            borderBottomColor: cs.borderBottomColor,
+                            color: cs.color,
+                            fontSize: cs.fontSize,
+                            lineHeight: cs.lineHeight,
+                            fontWeight: cs.fontWeight,
+                            fontFamily: cs.fontFamily,
+                            paddingLeft: cs.paddingLeft,
+                            paddingRight: cs.paddingRight,
+                            paddingTop: cs.paddingTop,
+                            paddingBottom: cs.paddingBottom,
+                            textShadow: cs.textShadow
+                        };
+                    })()
+                };
+            })
+        });
+    });
+
+    return {
+        clipRectAbs,
+        headerCells,
+        bodyRows,
+        rowHeightDefault,
+        rowHeightLast,
+        lastRowIndex: bodyRowEls.length - 1
+    };
+}
+
 function drawBarrageLayerToCanvas(previewPanel, context, toLocalRect, renderState = null) {
     const barrageLayer = previewPanel.querySelector('#barrageLayer');
     if (!barrageLayer) return;
+    const barrageCache = renderState && renderState.exportBarrageCache ? renderState.exportBarrageCache : null;
     const barrageItems = Array.from(barrageLayer.querySelectorAll('.barrage-item'));
     barrageItems.forEach((item, index) => {
         const itemRect = item.getBoundingClientRect();
         if (itemRect.width <= 0 || itemRect.height <= 0) return;
         const localRect = toLocalRect(itemRect);
-        const itemStyle = getComputedStyle(item);
-        const borderWidth = parseFloat(itemStyle.borderWidth) || 1;
+        const cachedItem = barrageCache?.items?.[index];
+        const itemStyle = cachedItem?.styleSnapshot || getComputedStyle(item);
+        const borderWidth = cachedItem?.borderWidth ?? (parseFloat(itemStyle.borderWidth) || 1);
         drawRoundedRect(
             context,
             localRect.x,
@@ -992,7 +1168,8 @@ function drawBarrageLayerToCanvas(previewPanel, context, toLocalRect, renderStat
             itemStyle.borderColor,
             borderWidth
         );
-        drawTextInRect(context, item.textContent || '', localRect, itemStyle, 'center', renderState, `barrage-${index}`);
+        const text = cachedItem?.text ?? (item.textContent || '');
+        drawTextInRect(context, text, localRect, itemStyle, 'center', renderState, `barrage-${index}`);
     });
 }
 
@@ -1114,66 +1291,156 @@ function drawPreviewPanelToCanvas(previewPanel, context, width, height, renderSt
 
     // 绘制表体（受滚动影响）
     if (tbody && scrollWrapper && thead) {
+        const exportTableCache = renderState && renderState.exportTableCache ? renderState.exportTableCache : null;
+
         // 获取表头的实际位置，表体应该从表头下边缘开始裁剪
         const headerRect = thead.getBoundingClientRect();
         const wrapperRect = scrollWrapper.getBoundingClientRect();
-        
-        const clipLeft = wrapperRect.left - panelRect.left;
-        const clipTop = headerRect.bottom - panelRect.top; // 从表头下边缘开始
-        const clipWidth = wrapperRect.width;
-        const clipHeight = wrapperRect.bottom - headerRect.bottom; // 表头下边缘到 wrapper 底部
-        
-        if (clipHeight > 0) {
+
+        const fallbackClipLeft = wrapperRect.left - panelRect.left;
+        const fallbackClipTop = headerRect.bottom - panelRect.top; // 从表头下边缘开始
+        const fallbackClipWidth = wrapperRect.width;
+        const fallbackClipHeight = wrapperRect.bottom - headerRect.bottom; // 表头下边缘到 wrapper 底部
+
+        const useCacheClip = exportTableCache && exportTableCache.clipRectAbs && exportTableCache.clipRectAbs.height > 0;
+        const clipRect = useCacheClip
+            ? {
+                x: exportTableCache.clipRectAbs.left - panelRect.left,
+                y: exportTableCache.clipRectAbs.top - panelRect.top,
+                w: exportTableCache.clipRectAbs.width,
+                h: exportTableCache.clipRectAbs.height
+            }
+            : {
+                x: fallbackClipLeft,
+                y: fallbackClipTop,
+                w: fallbackClipWidth,
+                h: fallbackClipHeight
+            };
+
+        if (clipRect.h > 0) {
             context.save();
             context.beginPath();
-            context.rect(clipLeft, clipTop, clipWidth, clipHeight);
+            context.rect(clipRect.x, clipRect.y, clipRect.w, clipRect.h);
             context.clip();
 
-            const bodyRows = Array.from(tbody.querySelectorAll('tr'));
-            for (const row of bodyRows) {
-                const rowStyle = getComputedStyle(row);
-                const rowOpacity = Number.parseFloat(rowStyle.opacity || '1');
-                if (rowOpacity <= 0.02) continue;
+            if (exportTableCache && exportTableCache.bodyRows && exportTableCache.bodyRows.length) {
+                for (const cachedRow of exportTableCache.bodyRows) {
+                    const rowEl = cachedRow.rowEl;
+                    const rowRect = rowEl.getBoundingClientRect();
+                    if (rowRect.width <= 0 || rowRect.height <= 0) continue;
 
-                const cells = Array.from(row.children);
-                for (const cell of cells) {
-                    const cellRect = cell.getBoundingClientRect();
-                    if (cellRect.width <= 0 || cellRect.height <= 0) continue;
+                    const rowOpacity = Number.parseFloat(getComputedStyle(rowEl).opacity || '1');
+                    if (rowOpacity <= 0.02) continue;
 
-                    const localRect = toLocalRect(cellRect);
-                    const cellStyle = getComputedStyle(cell);
+                    const baseW = cachedRow.baseRowRectAbs.width || 1;
+                    const baseH = cachedRow.baseRowRectAbs.height || 1;
+                    const scaleX = rowRect.width / baseW;
+                    const scaleY = rowRect.height / baseH;
+
+                    const rowAbsLeft = rowRect.left;
+                    const rowAbsTop = rowRect.top;
+
+                    const rowBgVisible = hasVisibleColor(cachedRow.backgroundColor);
+                    const stableHeight = cachedRow.rowIndex === exportTableCache.lastRowIndex ? rowHeightLast : rowHeightDefault;
 
                     context.save();
                     context.globalAlpha = rowOpacity;
 
-                    if (hasVisibleColor(rowStyle.backgroundColor)) {
-                        context.fillStyle = rowStyle.backgroundColor;
-                        context.fillRect(localRect.x, localRect.y, localRect.width, localRect.height);
+                    for (const cachedCell of cachedRow.cells) {
+                        const cellAbsLeft = rowAbsLeft + cachedCell.offsetX * scaleX;
+                        const cellAbsTop = rowAbsTop + cachedCell.offsetY * scaleY;
+
+                        const localRect = {
+                            x: cellAbsLeft - panelRect.left,
+                            y: cellAbsTop - panelRect.top,
+                            width: cachedCell.width * scaleX,
+                            height: cachedCell.height * scaleY
+                        };
+
+                        if (rowBgVisible) {
+                            context.fillStyle = cachedRow.backgroundColor;
+                            context.fillRect(localRect.x, localRect.y, localRect.width, localRect.height);
+                        }
+
+                        const cellStyle = cachedCell.styleSnapshot;
+                        if (hasVisibleColor(cellStyle.backgroundColor)) {
+                            context.fillStyle = cellStyle.backgroundColor;
+                            context.fillRect(localRect.x, localRect.y, localRect.width, localRect.height);
+                        }
+
+                        if (cellStyle.borderBottomWidth !== '0px' && cellStyle.borderBottomColor) {
+                            context.strokeStyle = cellStyle.borderBottomColor;
+                            context.lineWidth = parseFloat(cellStyle.borderBottomWidth) || 1;
+                            context.beginPath();
+                            context.moveTo(localRect.x, localRect.y + localRect.height);
+                            context.lineTo(localRect.x + localRect.width, localRect.y + localRect.height);
+                            context.stroke();
+                        }
+
+                        const cellSeed = `${cachedRow.rowIndex}-${cachedCell.cellIndex}`;
+                        drawTextInRect(
+                            context,
+                            cachedCell.text,
+                            localRect,
+                            cellStyle,
+                            'left',
+                            renderState,
+                            cellSeed,
+                            stableHeight
+                        );
                     }
 
-                    if (hasVisibleColor(cellStyle.backgroundColor)) {
-                        context.fillStyle = cellStyle.backgroundColor;
-                        context.fillRect(localRect.x, localRect.y, localRect.width, localRect.height);
-                    }
-
-                    if (cellStyle.borderBottomWidth !== '0px' && cellStyle.borderBottomColor) {
-                        context.strokeStyle = cellStyle.borderBottomColor;
-                        context.lineWidth = parseFloat(cellStyle.borderBottomWidth) || 1;
-                        context.beginPath();
-                        context.moveTo(localRect.x, localRect.y + localRect.height);
-                        context.lineTo(localRect.x + localRect.width, localRect.y + localRect.height);
-                        context.stroke();
-                    }
-
-                    const isLastBodyRow = tbody.lastElementChild === row;
-                    const stableHeight = isLastBodyRow ? rowHeightLast : rowHeightDefault;
-                    const rowClassSeed = `${row.rowIndex || 0}`;
-                    const cellSeed = `${rowClassSeed}-${cell.cellIndex || 0}`;
-                    drawTextInRect(context, cell.textContent || '', localRect, cellStyle, 'left', renderState, cellSeed, stableHeight);
                     context.restore();
                 }
+
+            } else {
+                // 回退：保持原有 DOM + 逐单元格绘制逻辑
+                const bodyRows = Array.from(tbody.querySelectorAll('tr'));
+                for (const row of bodyRows) {
+                    const rowStyle = getComputedStyle(row);
+                    const rowOpacity = Number.parseFloat(rowStyle.opacity || '1');
+                    if (rowOpacity <= 0.02) continue;
+
+                    const cells = Array.from(row.children);
+                    for (const cell of cells) {
+                        const cellRect = cell.getBoundingClientRect();
+                        if (cellRect.width <= 0 || cellRect.height <= 0) continue;
+
+                        const localRect = toLocalRect(cellRect);
+                        const cellStyle = getComputedStyle(cell);
+
+                        context.save();
+                        context.globalAlpha = rowOpacity;
+
+                        if (hasVisibleColor(rowStyle.backgroundColor)) {
+                            context.fillStyle = rowStyle.backgroundColor;
+                            context.fillRect(localRect.x, localRect.y, localRect.width, localRect.height);
+                        }
+
+                        if (hasVisibleColor(cellStyle.backgroundColor)) {
+                            context.fillStyle = cellStyle.backgroundColor;
+                            context.fillRect(localRect.x, localRect.y, localRect.width, localRect.height);
+                        }
+
+                        if (cellStyle.borderBottomWidth !== '0px' && cellStyle.borderBottomColor) {
+                            context.strokeStyle = cellStyle.borderBottomColor;
+                            context.lineWidth = parseFloat(cellStyle.borderBottomWidth) || 1;
+                            context.beginPath();
+                            context.moveTo(localRect.x, localRect.y + localRect.height);
+                            context.lineTo(localRect.x + localRect.width, localRect.y + localRect.height);
+                            context.stroke();
+                        }
+
+                        const isLastBodyRow = tbody.lastElementChild === row;
+                        const stableHeight = isLastBodyRow ? rowHeightLast : rowHeightDefault;
+                        const rowClassSeed = `${row.rowIndex || 0}`;
+                        const cellSeed = `${rowClassSeed}-${cell.cellIndex || 0}`;
+                        drawTextInRect(context, cell.textContent || '', localRect, cellStyle, 'left', renderState, cellSeed, stableHeight);
+                        context.restore();
+                    }
+                }
             }
-            
+
             context.restore();
         }
     }
@@ -1204,6 +1471,9 @@ async function startAutomaticRecorder(previewPanel, shouldRecord = true) {
     const renderState = {
         textLayoutCache: new Map()
     };
+    // 导出前一次性快照：减少逐帧 getComputedStyle/getBoundingClientRect 成本
+    renderState.exportBarrageCache = buildExportBarrageRenderCache(previewPanel);
+    renderState.exportTableCache = buildExportTableRenderCache(previewPanel);
     drawPreviewPanelToCanvas(previewPanel, context, width, height, renderState, true);
 
     let stream = null;
@@ -1310,25 +1580,33 @@ function runTableAnimation() {
                 row.classList.add('collapsed-row');
             });
 
-            rows.forEach(row => {
-                row.classList.remove('collapsed-row');
-                row.classList.add('expanded-row');
-                row.style.visibility = 'hidden';
-            });
+            // 使用 CSS 里稳定的行高，避免在动画/transform 期间测量 DOM 导致亚像素抖动
+            const tableContainer = document.getElementById('tableContainer');
+            const tableContainerStyle = tableContainer ? getComputedStyle(tableContainer) : null;
 
-            const fullTableBodyHeight = tbody.getBoundingClientRect().height;
-            const measuredRowHeight = fullTableBodyHeight / totalRows;
+            let bodyRowHeight = tableContainerStyle
+                ? parseFloat(tableContainerStyle.getPropertyValue('--row-expand-max'))
+                : NaN;
+            let lastRowHeight = tableContainerStyle
+                ? parseFloat(tableContainerStyle.getPropertyValue('--row-expand-max-last'))
+                : NaN;
 
-            rows.forEach(row => {
-                row.classList.remove('expanded-row');
-                row.classList.add('collapsed-row');
-                row.style.visibility = '';
-            });
+            if (!Number.isFinite(bodyRowHeight) || bodyRowHeight <= 0 || !Number.isFinite(lastRowHeight) || lastRowHeight <= 0) {
+                const firstRowRect = rows[0]?.getBoundingClientRect?.();
+                const lastRowRect = rows[rows.length - 1]?.getBoundingClientRect?.();
+                if (firstRowRect && Number.isFinite(firstRowRect.height)) {
+                    bodyRowHeight = firstRowRect.height;
+                } else {
+                    bodyRowHeight = Math.max(1, Math.floor(visibleBodyHeight / Math.max(1, totalRows)));
+                }
+                lastRowHeight = lastRowRect && Number.isFinite(lastRowRect.height) ? lastRowRect.height : bodyRowHeight;
+            }
 
-            const maxVisibleRows = Math.max(1, Math.floor(visibleBodyHeight / measuredRowHeight));
-            const totalScrollNeeded = Math.max(0, fullTableBodyHeight - visibleBodyHeight);
+            const totalBodyHeight = Math.max(0, (totalRows - 1) * bodyRowHeight + lastRowHeight);
+            const maxVisibleRows = Math.max(1, Math.floor(visibleBodyHeight / bodyRowHeight));
+            const totalScrollNeeded = Math.max(0, totalBodyHeight - visibleBodyHeight);
 
-            tbody.style.transform = 'translateY(0)';
+            tbody.style.transform = 'translate3d(0, 0, 0)';
             tbody.style.willChange = 'transform';
 
             let currentIndex = 0;
@@ -1367,9 +1645,12 @@ function runTableAnimation() {
                 if (isScrolling && scrollStartTime) {
                     const scrollElapsed = timestamp - scrollStartTime;
                     // 滚动速度：每 interval 毫秒滚动一行高度
-                    const scrollSpeed = measuredRowHeight / interval;
-                    const currentScrollY = Math.min(scrollElapsed * scrollSpeed, totalScrollNeeded);
-                    tbody.style.transform = `translateY(-${currentScrollY}px)`;
+                    const scrollSpeed = bodyRowHeight / interval;
+                    const scrollYRaw = Math.min(scrollElapsed * scrollSpeed, totalScrollNeeded);
+                    // 量化到整数像素，避免亚像素渲染导致“整体抖动”
+                    const currentScrollY = Math.max(0, Math.min(Math.round(scrollYRaw), totalScrollNeeded));
+                    tableScrollY = currentScrollY;
+                    tbody.style.transform = `translate3d(0, -${currentScrollY}px, 0)`;
                 }
                 
                 // 检查是否完成
@@ -1378,17 +1659,19 @@ function runTableAnimation() {
                 } else if (isScrolling) {
                     // 所有行已展开，继续滚动直到完成
                     const scrollElapsed = timestamp - scrollStartTime;
-                    const scrollSpeed = measuredRowHeight / interval;
-                    const currentScrollY = Math.min(scrollElapsed * scrollSpeed, totalScrollNeeded);
+                    const scrollSpeed = bodyRowHeight / interval;
+                    const scrollYRaw = Math.min(scrollElapsed * scrollSpeed, totalScrollNeeded);
+                    const currentScrollY = Math.max(0, Math.min(Math.round(scrollYRaw), totalScrollNeeded));
+                    tableScrollY = currentScrollY;
                     
                     if (currentScrollY < totalScrollNeeded) {
-                        tbody.style.transform = `translateY(-${currentScrollY}px)`;
+                        tbody.style.transform = `translate3d(0, -${currentScrollY}px, 0)`;
                         requestAnimationFrame(animate);
                     } else {
                         // 动画完成，等待后重置
                         setTimeout(() => {
                             tbody.style.transition = 'transform 0.8s cubic-bezier(0.25, 0.1, 0.25, 1)';
-                            tbody.style.transform = 'translateY(0)';
+                            tbody.style.transform = 'translate3d(0, 0, 0)';
                             tableScrollY = 0;
                             setTimeout(() => {
                                 tbody.style.transition = 'none';
@@ -1404,7 +1687,7 @@ function runTableAnimation() {
                     // 没有滚动需求，直接完成
                     setTimeout(() => {
                         tbody.style.transition = 'transform 0.8s cubic-bezier(0.25, 0.1, 0.25, 1)';
-                        tbody.style.transform = 'translateY(0)';
+                        tbody.style.transform = 'translate3d(0, 0, 0)';
                         tableScrollY = 0;
                         setTimeout(() => {
                             tbody.style.transition = 'none';
